@@ -19,11 +19,14 @@ char charPasswordMQTT[33] = "Password";               // MQTT Password
 char charTopicPrefixMQTT[35] = "DaikinAC2Homebridge"; // MQTT Topic Prefix
 
 bool ARCRemote = true; // If you have a daikin AC that use a BRC controller, please change this to false.
-bool useAButton = true;
+bool useAButton = false;
+bool useWifiLed = true;
+bool useStateLed = false;
 
 #define button_config 5 // Button
-#define pin_led_Wifi 16 // green led
+#define pin_led_Wifi 16 // WIFI RED LED -> D0
 #define pin_led_IR 4    // IR LED -> D2
+#define pin_led_State 2 // AC STATE LED D4 -> 2
 
 // SSID WifiManager configuration network
 const char *ssid_apmode = "DaikinAC";
@@ -60,6 +63,7 @@ void setup()
   }
 
   pinMode(pin_led_Wifi, OUTPUT);
+  pinMode(pin_led_State, OUTPUT);
 
   ///  clean FS, for testing
   // SPIFFS.format();
@@ -305,11 +309,13 @@ void callbackARC(char *topic, byte *payload, unsigned int length)
     {
       Serial.println("ON");
       daikinController.on();
+      useStateLed ? digitalWrite(pin_led_State, HIGH) : digitalWrite(pin_led_State, LOW);
     }
     else if (actualPayload.equals("false"))
     {
       Serial.println("OFF");
       daikinController.off();
+      digitalWrite(pin_led_State, LOW);
     }
     else
     {
@@ -320,10 +326,11 @@ void callbackARC(char *topic, byte *payload, unsigned int length)
   else if (actualTopic.equals("Mode"))
   {
     Serial.print("Mode : ");
-    if (actualPayload.equals("off"))
+    if (actualPayload.equals("false"))
     {
-      Serial.println("off");
+      Serial.println("Off");
       daikinController.off();
+      digitalWrite(pin_led_State, LOW);
     }
     else
     {
@@ -335,6 +342,7 @@ void callbackARC(char *topic, byte *payload, unsigned int length)
         {
           Serial.println(modes[i]);
           daikinController.setMode(i);
+          useStateLed ? digitalWrite(pin_led_State, HIGH) : digitalWrite(pin_led_State, LOW);
           break;
         }
       }
@@ -378,15 +386,15 @@ void callbackARC(char *topic, byte *payload, unsigned int length)
   }
   else if (actualTopic.equals("Swing"))
   {
-    Serial.print("Swing : ");
+    Serial.println("Swing : ");
     if (actualPayload.equals("ENABLED"))
     {
-      Serial.print("On");
+      Serial.println("On");
       daikinController.setSwing_on();
     }
     else if (actualPayload.equals("DISABLED"))
     {
-      Serial.print("Off");
+      Serial.println("Off");
       daikinController.setSwing_off();
     }
     else
@@ -415,11 +423,13 @@ void callbackBRC(char *topic, byte *payload, unsigned int length)
     {
       Serial.println("ON");
       daikinController.on();
+      useStateLed ? digitalWrite(pin_led_State, HIGH) : digitalWrite(pin_led_State, LOW);
     }
     else if (actualPayload.equals("false"))
     {
       Serial.println("OFF");
       daikinController.off();
+      digitalWrite(pin_led_State, LOW);
     }
     else
     {
@@ -482,6 +492,7 @@ void callbackBRC(char *topic, byte *payload, unsigned int length)
     }
   }
   daikinController.sendCommand();
+  useStateLed ? digitalWrite(pin_led_State, HIGH) : digitalWrite(pin_led_State, LOW);
 }
 
 /* MQTT STOCK END */
@@ -509,11 +520,11 @@ void loop()
 
   if (WiFi.status() == WL_CONNECTED)
   {
-    digitalWrite(pin_led_Wifi, HIGH);
+    digitalWrite(pin_led_Wifi, LOW);
   }
   else
   {
-    digitalWrite(pin_led_Wifi, LOW);
+    useWifiLed ? digitalWrite(pin_led_Wifi, HIGH) : digitalWrite(pin_led_Wifi, LOW);
   }
   if (useAButton)
   {
