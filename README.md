@@ -14,40 +14,34 @@ Control your Daikin AC with Homebridge (MQTT) using an ESP8266 and an IR led.
 * Install the "homebridge-mqttthing" plugin
 * Configure the plugin like this:
 ```
-{
-  "accessories": [
-    {
-      "accessory": "DaikinAC2Homebridge",
-      "name": "Living Room AC",
-      "modes": [
-        "off",
-        "fan_only",
-        "cool",
-        "dry",
-        "heat"
-      ],
-      "swing_modes": [
-        "On",
-        "Off"
-      ],
-      "fan_modes": [
-        "Min",
-        "Low",
-        "Medium",
-        "High",
-        "Auto"
-      ],
-      "mode_command_topic": "DaikinACController/Mode",
-      "temperature_command_topic": "DaikinACController/Temperature",
-      "fan_mode_command_topic": "DaikinACController/FanSpeed",
-      "swing_mode_command_topic": "DaikinACController/Swing",
-      "min_temp": 18,
-      "max_temp": 30,
-      "retain": false,
-      "precision": 1.0
-    }
-  ]
-}
+    "accessories": [
+        {
+            "type": "heaterCooler",
+            "name": "Clim",
+            "username": "user",
+            "password": "password",
+            "optimizePublishing": true,
+            "topics": {
+                "getActive": "DaikinAC2Homebridge/Power",
+                "setActive": "DaikinAC2Homebridge/Power",
+                "getCoolingThresholdTemperature": "DaikinAC2Homebridge/Temperature",
+                "setCoolingThresholdTemperature": "DaikinAC2Homebridge/Temperature",
+                "getCurrentHeaterCoolerState": "DaikinAC2Homebridge/Mode",
+                "getCurrentTemperature": "DaikinAC2Homebridge/Temperature",
+                "getHeatingThresholdTemperature": "DaikinAC2Homebridge/Temperature",
+                "setHeatingThresholdTemperature": "DaikinAC2Homebridge/Temperature",
+                "getRotationSpeed": "DaikinAC2Homebridge/FanSpeed",
+                "setRotationSpeed": "DaikinAC2Homebridge/FanSpeed",
+                "getSwingMode": "DaikinAC2Homebridge/Swing",
+                "setSwingMode": "DaikinAC2Homebridge/Swing",
+                "getTargetHeaterCoolerState": "DaikinAC2Homebridge/Mode",
+                "setTargetHeaterCoolerState": "DaikinAC2Homebridge/Mode"
+            },
+            "minTemperature": 20,
+            "maxTemperature": 27,
+            "accessory": "mqttthing"
+        }
+    ],
 ```
 
 ## Wiring Diagram
