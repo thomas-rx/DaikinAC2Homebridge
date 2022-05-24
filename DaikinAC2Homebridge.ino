@@ -1,7 +1,5 @@
-// http://pdacontrolen.com/wifimanager-emoncms-oem-with-esp8266-temperature-1/ Help me to create Wifi hotspot
 // https://github.com/arachnetech/homebridge-mqttthing/blob/master/docs/Accessories.md#heater-cooler Help me to create accessory on homebridge
 
-// needed for library
 #include <FS.h>               //this needs to be first, or it all crashes and burns...
 #include <ArduinoJson.h>      //https://github.com/bblanchon/ArduinoJson
 #include <ESP8266WiFi.h>      //https://github.com/esp8266/Arduino/tree/master/libraries/ESP8266WiFi
@@ -18,89 +16,82 @@ char charUsernameMQTT[35] = "Username";               // MQTT Username
 char charPasswordMQTT[33] = "Password";               // MQTT Password
 char charTopicPrefixMQTT[35] = "DaikinAC2Homebridge"; // MQTT Topic Prefix
 
-bool ARCRemote = true; // If you have a daikin AC that use a BRC controller, please change this to false.
-bool useAButton = false;
-bool useWifiLed = true;
-bool useStateLed = false;
+bool ARCRemote = true;    // If you have a daikin AC that use a BRC controller, please change this to false.
+bool useButton = false;   // If you use a button, please change this to true.
+bool useWifiLed = false;  // If you use a wifi state led, please change this to true.
+bool useStateLed = false; // If you use a state led, please change this to true.
 
-#define button_config 5 // Button
+bool debug = false; // If you want to see debug message, please change this to true.
+
+#define button_config 5 // Button to reset wifi config
 #define pin_led_Wifi 16 // WIFI RED LED -> D0
 #define pin_led_IR 4    // IR LED -> D2
-#define pin_led_State 2 // AC STATE LED D4 -> 2
+#define pin_led_State 2 // AC STATE LED ->  D4
 
-// SSID WifiManager configuration network
-const char *ssid_apmode = "DaikinAC";
+const char *ssid_apmode = "DaikinAC"; // AP Mode SSID
 
-// Init for PubSubClient (MQTT)
 WiFiClient espClient;
-PubSubClient client(espClient);
+PubSubClient client(espClient); // Create a client connection
 
-// Librarie use to send right IR codes to AC
-DYIRDaikin daikinController;
+DYIRDaikin daikinController; // Create a DYIRDaikin object to control the Daikin AC
 
-// flag for saving data
-bool shouldSaveConfig = false;
-bool initialConfig = false;
+bool shouldSaveConfig = false; // Flag for saving config to FS
+bool initialConfig = false;    // Flag for initial configuration
 
-// callback notifying us of the need to save config
 void saveConfigCallback()
 {
-  Serial.println("Should save config");
-  shouldSaveConfig = true;
+  shouldSaveConfig = true; // Set flag to true
 }
 
 void setup()
 {
-  // put your setup code here, to run once:
   Serial.begin(115200);
-  Serial.println("\n Starting");
+  Serial.println("\n Starting DaikinAC2Homebridge...");
 
   daikinController.begin(pin_led_IR);
 
-  if (useAButton)
-  {
+  if (useButton)
     pinMode(button_config, INPUT_PULLUP);
-  }
+  if (useWifiLed)
+    pinMode(pin_led_Wifi, OUTPUT);
+  if (useStateLed)
+    pinMode(pin_led_State, OUTPUT);
 
-  pinMode(pin_led_Wifi, OUTPUT);
-  pinMode(pin_led_State, OUTPUT);
+  if (debug)
+    SPIFFS.format(); // For debug only
 
-  ///  clean FS, for testing
-  // SPIFFS.format();
-
-  ////////////////////////////////////////////
-  ////////Montar SP///////////////////////////
-  ////////////////////////////////////////////
-
-  // read configuration from FS json
-  Serial.println("mounting FS...");
+  Serial.println("Mounting FS...");
 
   if (SPIFFS.begin())
   {
-    Serial.println("mounted file system");
+    Serial.println("File system mounted.");
+
     if (SPIFFS.exists("/config.json"))
     {
-      // file exists, reading and loading
-      Serial.println("reading config file");
+      Serial.println("Reading config file...");
+
       File configFile = SPIFFS.open("/config.json", "r");
+
       if (configFile)
       {
-        Serial.println("opened config file");
+        Serial.println("Config file opened.");
+
         size_t size = configFile.size();
-        // Allocate a buffer to store contents of the file.
-        std::unique_ptr<char[]> buf(new char[size]);
+        std::unique_ptr<char[]> buf(new char[size]); // create buffer to store contents of file
 
         configFile.readBytes(buf.get(), size);
         DynamicJsonDocument jsonBuffer(1024);
-        // JsonObject &json = jsonBuffer.parseObject(buf.get());
+
         DeserializationError error = deserializeJson(jsonBuffer, buf.get());
+
         if (error)
         {
           Serial.print(F("deserializeJson() failed: "));
           Serial.println(error.f_str());
           return;
         }
-        Serial.println("\nparsed json");
+
+        Serial.println("\nJSON has been loaded, parsing now...");
 
         strcpy(charServerMQTT, jsonBuffer["charServerMQTT"]);
         strcpy(charPortMQTT, jsonBuffer["charPortMQTT"]);
@@ -112,31 +103,24 @@ void setup()
   }
   else
   {
-    Serial.println("failed to mount FS");
+    Serial.println("Error: File system not mounted.");
   }
-  // end read
 
-  Serial.println("SSID Now");
+  Serial.println("\nChecking WiFi...");
   Serial.println(WiFi.SSID());
 
-  /********** Connection Verification **********/
-  if (WiFi.SSID() == "")
+  if (WiFi.SSID() == "") // Connection verification
   {
-    Serial.println("Not configured !!! or do not connect to the NETWORK !!!");
+    Serial.println("WiFi is not connected or not configured.");
     initialConfig = true;
   }
+
   else
   {
-    Serial.println("Correct configuration");
+    Serial.println("WiFi seems to be configured.");
   }
-  if (ARCRemote)
-  {
-    client.setCallback(callbackARC);
-  }
-  else
-  {
-    client.setCallback(callbackBRC);
-  }
+
+  ARCRemote ? client.setCallback(callbackARC) : client.setCallback(callbackBRC);
 }
 
 void createWifi()
@@ -151,7 +135,7 @@ void createWifi()
 
   wifiManager.setSaveConfigCallback(saveConfigCallback);
 
-  WiFiManagerParameter custom_text("<p><strong>Mqtt Configuration</strong></p>");
+  WiFiManagerParameter custom_text("<p><strong>MQTT Configuration</strong></p>");
   wifiManager.addParameter(&custom_text);
   wifiManager.addParameter(&custom_server_MQTT);
   wifiManager.addParameter(&custom_port_MQTT);
@@ -159,16 +143,17 @@ void createWifi()
   wifiManager.addParameter(&custom_username_MQTT);
   wifiManager.addParameter(&custom_password_MQTT);
 
-  String ssid = String(ssid_apmode) + String("_") + String(ESP.getChipId());
+  String ssid = String(ssid_apmode) + String("-") + String(ESP.getChipId());
 
   if (!wifiManager.startConfigPortal(ssid.c_str()))
   {
-    Serial.println("failed to connect and hit timeout");
+    Serial.println("Failed to connect to WiFi and hit timeout.");
     delay(3000);
-    // reset and try again, or maybe put it to deep sleep
+
     ESP.reset();
     delay(5000);
   }
+
   strcpy(charServerMQTT, custom_server_MQTT.getValue());
   strcpy(charPortMQTT, custom_port_MQTT.getValue());
   strcpy(charUsernameMQTT, custom_username_MQTT.getValue());
@@ -180,14 +165,19 @@ void createWifi()
     Serial.println("saving config");
     DynamicJsonDocument jsonBuffer(1024);
     DynamicJsonDocument json(1024);
+
     Serial.print("charServerMQTT: ");
     Serial.println(charServerMQTT);
+
     Serial.print("charPortMQTT: ");
     Serial.println(charPortMQTT);
+
     Serial.print("charUsernameMQTT: ");
     Serial.println(charUsernameMQTT);
+
     Serial.print("charPasswordMQTT: ");
     Serial.println(charPasswordMQTT);
+
     Serial.print("charServerMQTT: ");
     Serial.println(charTopicPrefixMQTT);
 
@@ -199,13 +189,9 @@ void createWifi()
 
     File configFile = SPIFFS.open("/config.json", "w");
     if (!configFile)
-    {
-      Serial.println("failed to open config file for writing");
-    }
+      Serial.println("Failed to open config file for writing.");
 
-    // json.printTo(Serial);
     serializeJson(json, Serial);
-    // json.printTo(configFile);
     serializeJson(json, configFile);
     configFile.close();
   }
@@ -246,9 +232,8 @@ void publishMQTTMessage(char *topic, String payload, boolean retain)
   publishMQTTMessage(topic, charArray, true);
 }
 
-void reconnect()
+void reconnect() // Loop until we're reconnected
 {
-  // Loop until we're reconnected
   if (!client.connected() && WiFi.status() == WL_CONNECTED)
   {
     Serial.println("Attempting MQTT connection...");
@@ -256,14 +241,21 @@ void reconnect()
     char charDeviceLabel[50];
     String deviceLabel = String(ssid_apmode) + String("_") + String(ESP.getChipId());
     deviceLabel.toCharArray(charDeviceLabel, 50);
-    /*Serial.print("MQTT Client id: ");
-    Serial.println(charDeviceLabel);
-    Serial.print("MQTT username: ");
-    Serial.println(charUsernameMQTT);
-    Serial.print("MQTT password: ");
-    Serial.println(charPasswordMQTT);*/
+
+    if (debug)
+    {
+      Serial.print("MQTT Client ID: ");
+      Serial.println(charDeviceLabel);
+
+      Serial.print("MQTT Username: ");
+      Serial.println(charUsernameMQTT);
+
+      Serial.print("MQTT Password: ");
+      Serial.println(charPasswordMQTT);
+    }
+
     client.setServer(charServerMQTT, String(charPortMQTT).toInt());
-    // Attemp to connect
+
     if (client.connect(charDeviceLabel, charUsernameMQTT, charPasswordMQTT))
     {
       Serial.println("Connected to MQTT server");
@@ -273,6 +265,7 @@ void reconnect()
       subscribeToTopic("%s/FanSpeed");
       subscribeToTopic("%s/Swing");
     }
+
     else
     {
       Serial.print("Failed, rc=");
@@ -287,7 +280,7 @@ void subscribeToTopic(char *topic)
   char completeTopic[50];
   sprintf(completeTopic, topic, charTopicPrefixMQTT);
   client.subscribe(completeTopic);
-  Serial.print("SUBSCRIBE TO:");
+  Serial.print("Subscribe to:");
   Serial.println(completeTopic);
 }
 
@@ -295,47 +288,58 @@ void callbackARC(char *topic, byte *payload, unsigned int length)
 {
   Serial.print("Message arrived [");
   String actualTopic = topic;
+
   actualTopic = actualTopic.substring(strlen(charTopicPrefixMQTT) + 1);
   Serial.print(actualTopic);
   Serial.print("] ");
+
   payload[length] = '\0';
+
   String actualPayload = String((char *)payload);
   Serial.println(actualPayload);
 
   if (actualTopic.equals("Power"))
   {
     Serial.print("Power : ");
+
     if (actualPayload.equals("true"))
     {
       Serial.println("ON");
       daikinController.on();
       useStateLed ? digitalWrite(pin_led_State, HIGH) : digitalWrite(pin_led_State, LOW);
     }
+
     else if (actualPayload.equals("false"))
     {
       Serial.println("OFF");
       daikinController.off();
       digitalWrite(pin_led_State, LOW);
     }
+
     else
     {
       Serial.println("Unknown");
     }
+
     Serial.println(actualPayload);
   }
+
   else if (actualTopic.equals("Mode"))
   {
     Serial.print("Mode : ");
+
     if (actualPayload.equals("false"))
     {
       Serial.println("Off");
       daikinController.off();
       digitalWrite(pin_led_State, LOW);
     }
+
     else
     {
       daikinController.on();
       String modes[] = {"FAN", "COOL", "DRY", "HEAT"};
+
       for (int i = 0; i < sizeof(modes); i++)
       {
         if (actualPayload.equals(modes[i]))
@@ -348,60 +352,72 @@ void callbackARC(char *topic, byte *payload, unsigned int length)
       }
     }
   }
+
   else if (actualTopic.equals("Temperature"))
   {
     Serial.print("Temperature : ");
     Serial.println(actualPayload.toInt());
     daikinController.setTemp(actualPayload.toInt());
   }
+
   else if (actualTopic.equals("FanSpeed"))
   {
     Serial.print("FanSpeed : ");
     int fanSpeed = actualPayload.toInt();
-    if (fanSpeed > 0 && fanSpeed < 25) // Min
-    {
+
+    if (fanSpeed > 0 && fanSpeed < 25)
+    { // Min
       Serial.println("Min");
       daikinController.setFan(1);
     }
-    else if (fanSpeed >= 25 && fanSpeed < 50) // Low
-    {
+
+    else if (fanSpeed >= 25 && fanSpeed < 50)
+    { // Low
       Serial.println("Low");
       daikinController.setFan(2);
     }
-    else if (fanSpeed >= 50 && fanSpeed < 75) // Medium
-    {
+
+    else if (fanSpeed >= 50 && fanSpeed < 75)
+    { // Medium
       Serial.println("Medium");
       daikinController.setFan(3);
     }
-    else if (fanSpeed >= 75 && fanSpeed < 100) // High
-    {
+
+    else if (fanSpeed >= 75 && fanSpeed < 100)
+    { // High
       Serial.println("High");
       daikinController.setFan(4);
     }
-    else if (fanSpeed == 100) // Auto
-    {
+
+    else if (fanSpeed == 100)
+    { // Auto
       Serial.println("Auto");
       daikinController.setFan(5);
     }
   }
+
   else if (actualTopic.equals("Swing"))
   {
     Serial.println("Swing : ");
+
     if (actualPayload.equals("ENABLED"))
     {
       Serial.println("On");
       daikinController.setSwing_on();
     }
+
     else if (actualPayload.equals("DISABLED"))
     {
       Serial.println("Off");
       daikinController.setSwing_off();
     }
+
     else
     {
       Serial.println("Unknown");
     }
   }
+
   daikinController.sendCommand();
 }
 
@@ -409,88 +425,108 @@ void callbackBRC(char *topic, byte *payload, unsigned int length)
 {
   Serial.print("Message arrived [");
   String actualTopic = topic;
+
   actualTopic = actualTopic.substring(strlen(charTopicPrefixMQTT) + 1);
+
   Serial.print(actualTopic);
   Serial.print("] ");
+
   payload[length] = '\0';
+
   String actualPayload = String((char *)payload);
   Serial.println(actualPayload);
 
   if (actualTopic.equals("Power"))
   {
     Serial.print("Power : ");
+
     if (actualPayload.equals("true"))
     {
       Serial.println("ON");
       daikinController.on();
       useStateLed ? digitalWrite(pin_led_State, HIGH) : digitalWrite(pin_led_State, LOW);
     }
+
     else if (actualPayload.equals("false"))
     {
       Serial.println("OFF");
       daikinController.off();
       digitalWrite(pin_led_State, LOW);
     }
+
     else
     {
       Serial.println("Unknown");
     }
+
     Serial.println(actualPayload);
   }
+
   else if (actualTopic.equals("Temperature"))
   {
     Serial.print("Temperature : ");
     Serial.println(actualPayload.toInt());
     daikinController.setTemp(actualPayload.toInt());
   }
+
   else if (actualTopic.equals("FanSpeed"))
   {
     Serial.print("FanSpeed : ");
     int fanSpeed = actualPayload.toInt();
-    if (fanSpeed > 0 && fanSpeed < 25) // Min
-    {
+
+    if (fanSpeed > 0 && fanSpeed < 25)
+    { // Min
       Serial.println("Min");
       daikinController.setFan(1);
     }
-    else if (fanSpeed >= 25 && fanSpeed < 50) // Low
-    {
+
+    else if (fanSpeed >= 25 && fanSpeed < 50)
+    { // Low
       Serial.println("Low");
       daikinController.setFan(2);
     }
-    else if (fanSpeed >= 50 && fanSpeed < 75) // Medium
-    {
+
+    else if (fanSpeed >= 50 && fanSpeed < 75)
+    { // Medium
       Serial.println("Medium");
       daikinController.setFan(3);
     }
-    else if (fanSpeed >= 75 && fanSpeed < 100) // High
-    {
+
+    else if (fanSpeed >= 75 && fanSpeed < 100)
+    { // High
       Serial.println("High");
       daikinController.setFan(4);
     }
-    else if (fanSpeed == 100) // Auto
-    {
+
+    else if (fanSpeed == 100)
+    { // Auto
       Serial.println("Auto");
       daikinController.setFan(5);
     }
   }
+
   else if (actualTopic.equals("Swing"))
   {
     Serial.print("Swing : ");
+
     if (actualPayload.equals("ENABLED"))
     {
       Serial.print("On");
       daikinController.setSwing_on();
     }
+
     else if (actualPayload.equals("DISABLED"))
     {
       Serial.print("Off");
       daikinController.setSwing_off();
     }
+
     else
     {
       Serial.println("Unknown");
     }
   }
+
   daikinController.sendCommand();
   useStateLed ? digitalWrite(pin_led_State, HIGH) : digitalWrite(pin_led_State, LOW);
 }
@@ -502,7 +538,7 @@ void loop()
 
   if (initialConfig)
   {
-    Serial.println("Network connection failed");
+    Serial.println("Network connection failed.");
     Serial.println("configure network credentials (Config button)");
     delay(2000);
   }
@@ -513,26 +549,26 @@ void loop()
     reconnect();
     delay(2000);
   }
+
   else
   {
-    client.loop(); // For MQTT, see if a new message has arrived
-  }
+    client.loop();
+  } // MQTT loop
 
   if (WiFi.status() == WL_CONNECTED)
   {
     digitalWrite(pin_led_Wifi, LOW);
   }
+
   else
   {
     useWifiLed ? digitalWrite(pin_led_Wifi, HIGH) : digitalWrite(pin_led_Wifi, LOW);
   }
-  if (useAButton)
+
+  if (useButton && digitalRead(button_config) == HIGH)
   {
-    if (digitalRead(button_config) == HIGH)
-    {
-      digitalWrite(pin_led_Wifi, LOW);
-      Serial.println("Creating a Wifi to configure the ESP");
-      createWifi();
-    }
+    digitalWrite(pin_led_Wifi, LOW);
+    Serial.println("Creating a Wifi to configure the ESP...");
+    createWifi();
   }
 }
