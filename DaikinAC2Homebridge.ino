@@ -9,6 +9,17 @@
 #include <PubSubClient.h>     //https://github.com/knolleary/pubsubclient
 #include <DYIRDaikin.h>       //https://github.com/danny-source/Arduino_DY_IRDaikin
 
+#define button_config 5 // Button to reset wifi config
+#define pin_led_Wifi 16 // WIFI RED LED -> D0
+#define pin_led_IR 4    // IR LED -> D2
+#define pin_led_State 2 // AC STATE LED ->  D4
+
+const char *ssid_apmode = "DaikinAC"; // AP Mode SSID
+WiFiClient espClient;
+PubSubClient client(espClient); // Create a client connection
+
+DYIRDaikin daikinController; // Create a DYIRDaikin object to control the Daikin AC
+
 /*** Default Value ***/
 char charServerMQTT[40] = "mqttserver.local";         // MQTT Server IP
 char charPortMQTT[6] = "1883";                        // MQTT Port
@@ -21,19 +32,12 @@ bool useButton = false;   // If you use a button, please change this to true.
 bool useWifiLed = false;  // If you use a wifi state led, please change this to true.
 bool useStateLed = false; // If you use a state led, please change this to true.
 
-bool debug = false; // If you want to see debug message, please change this to true.
-
-#define button_config 5 // Button to reset wifi config
-#define pin_led_Wifi 16 // WIFI RED LED -> D0
-#define pin_led_IR 4    // IR LED -> D2
-#define pin_led_State 2 // AC STATE LED ->  D4
-
-const char *ssid_apmode = "DaikinAC"; // AP Mode SSID
-
-WiFiClient espClient;
-PubSubClient client(espClient); // Create a client connection
-
-DYIRDaikin daikinController; // Create a DYIRDaikin object to control the Daikin AC
+bool ACPower = false; // AC Power | false = OFF, true = ON
+bool ACSwing = false; // AC Swing | false = OFF, true = ON
+int ACMode = 0;       // AC Mode  | 0 = FAN, 1 = COOL, 2 = DRY, 3 = HEAT
+int ACFanSpeed = 0;   // AC Fan   | 1 = LOW, 2 = MEDIUM, 3 = HIGH, 4 = MAX, 5 = AUTO,
+int ACTemp = 24;      // AC Temperature (Celsius or Fahrenheit)
+bool debug = false;   // If you want to see debug message, please change this to true.
 
 bool shouldSaveConfig = false; // Flag for saving config to FS
 bool initialConfig = false;    // Flag for initial configuration
@@ -300,124 +304,142 @@ void callbackARC(char *topic, byte *payload, unsigned int length)
 
   if (actualTopic.equals("Power"))
   {
-    Serial.print("Power : ");
-
     if (actualPayload.equals("true"))
     {
-      Serial.println("ON");
-      daikinController.on();
+      ACPower = true;
       useStateLed ? digitalWrite(pin_led_State, HIGH) : digitalWrite(pin_led_State, LOW);
     }
 
     else if (actualPayload.equals("false"))
     {
-      Serial.println("OFF");
-      daikinController.off();
+      ACPower = false;
       digitalWrite(pin_led_State, LOW);
     }
 
-    else
+    if (debug)
     {
-      Serial.println("Unknown");
+      Serial.print("SETTING POWER TO: ");
+      Serial.println(actualPayload);
     }
-
-    Serial.println(actualPayload);
   }
 
   else if (actualTopic.equals("Mode"))
   {
-    Serial.print("Mode : ");
-
     if (actualPayload.equals("false"))
     {
-      Serial.println("Off");
-      daikinController.off();
+      ACPower = false;
       digitalWrite(pin_led_State, LOW);
     }
 
     else
     {
-      daikinController.on();
+      ACPower = true;
       String modes[] = {"FAN", "COOL", "DRY", "HEAT"};
 
       for (int i = 0; i < sizeof(modes); i++)
       {
         if (actualPayload.equals(modes[i]))
         {
-          Serial.println(modes[i]);
-          daikinController.setMode(i);
+          ACMode = i;
           useStateLed ? digitalWrite(pin_led_State, HIGH) : digitalWrite(pin_led_State, LOW);
           break;
         }
       }
     }
+
+    if (debug)
+    {
+      Serial.print("SETTING MODE TO: ");
+      Serial.println(actualPayload);
+    }
   }
 
   else if (actualTopic.equals("Temperature"))
   {
-    Serial.print("Temperature : ");
-    Serial.println(actualPayload.toInt());
-    daikinController.setTemp(actualPayload.toInt());
+    ACTemp = actualPayload.toInt();
+
+    if (debug)
+    {
+      Serial.print("SETTING TEMPERATURE TO: ");
+      Serial.println(actualPayload.toInt());
+    }
   }
 
   else if (actualTopic.equals("FanSpeed"))
   {
-    Serial.print("FanSpeed : ");
     int fanSpeed = actualPayload.toInt();
 
     if (fanSpeed > 0 && fanSpeed < 25)
-    { // Min
-      Serial.println("Min");
-      daikinController.setFan(1);
+    {
+      ACFanSpeed = 1;
     }
 
     else if (fanSpeed >= 25 && fanSpeed < 50)
-    { // Low
-      Serial.println("Low");
-      daikinController.setFan(2);
+    {
+      ACFanSpeed = 2;
     }
 
     else if (fanSpeed >= 50 && fanSpeed < 75)
-    { // Medium
-      Serial.println("Medium");
-      daikinController.setFan(3);
+    {
+      ACFanSpeed = 3;
     }
 
     else if (fanSpeed >= 75 && fanSpeed < 100)
-    { // High
-      Serial.println("High");
-      daikinController.setFan(4);
+    {
+      ACFanSpeed = 4;
     }
 
     else if (fanSpeed == 100)
-    { // Auto
-      Serial.println("Auto");
-      daikinController.setFan(5);
+    {
+      ACFanSpeed = 5;
+    }
+
+    if (debug)
+    {
+      Serial.print("SETTING FAN SPEED TO: ");
+      Serial.println(ACFanSpeed);
     }
   }
 
   else if (actualTopic.equals("Swing"))
   {
-    Serial.println("Swing : ");
 
     if (actualPayload.equals("ENABLED"))
     {
-      Serial.println("On");
-      daikinController.setSwing_on();
+      ACSwing = true;
     }
 
     else if (actualPayload.equals("DISABLED"))
     {
-      Serial.println("Off");
-      daikinController.setSwing_off();
+      ACSwing = false;
     }
 
-    else
+    if (debug)
     {
-      Serial.println("Unknown");
+      Serial.print("SETTING SWING TO: ");
+      Serial.println(actualPayload);
     }
   }
 
+  Serial.println("Sending this to the AC: ");
+  Serial.println("-------------------------------------");
+  Serial.print("ACPower: ");
+  Serial.println(ACPower);
+  Serial.print("ACMode: ");
+  Serial.println(ACMode);
+  Serial.print("ACTemp: ");
+  Serial.println(ACTemp);
+  Serial.print("ACFanSpeed: ");
+  Serial.println(ACFanSpeed);
+  Serial.print("ACSwing: ");
+  Serial.println(ACSwing);
+  Serial.println("-------------------------------------");
+
+  ACPower ? daikinController.on() : daikinController.off();
+  ACSwing ? daikinController.setSwing_on() : daikinController.setSwing_off();
+  daikinController.setMode(ACMode);
+  daikinController.setTemp(ACTemp);
+  daikinController.setFan(ACFanSpeed);
   daikinController.sendCommand();
 }
 
@@ -438,97 +460,109 @@ void callbackBRC(char *topic, byte *payload, unsigned int length)
 
   if (actualTopic.equals("Power"))
   {
-    Serial.print("Power : ");
-
     if (actualPayload.equals("true"))
     {
-      Serial.println("ON");
-      daikinController.on();
+      ACPower = true;
       useStateLed ? digitalWrite(pin_led_State, HIGH) : digitalWrite(pin_led_State, LOW);
     }
 
     else if (actualPayload.equals("false"))
     {
-      Serial.println("OFF");
-      daikinController.off();
+      ACPower = false;
       digitalWrite(pin_led_State, LOW);
     }
 
-    else
+    if (debug)
     {
-      Serial.println("Unknown");
+      Serial.print("SETTING POWER TO: ");
+      Serial.println(actualPayload);
     }
-
-    Serial.println(actualPayload);
   }
 
   else if (actualTopic.equals("Temperature"))
   {
-    Serial.print("Temperature : ");
-    Serial.println(actualPayload.toInt());
-    daikinController.setTemp(actualPayload.toInt());
+    ACTemp = actualPayload.toInt();
+
+    if (debug)
+    {
+      Serial.print("SETTING TEMPERATURE TO: ");
+      Serial.println(actualPayload.toInt());
+    }
   }
 
   else if (actualTopic.equals("FanSpeed"))
   {
-    Serial.print("FanSpeed : ");
     int fanSpeed = actualPayload.toInt();
 
     if (fanSpeed > 0 && fanSpeed < 25)
-    { // Min
-      Serial.println("Min");
-      daikinController.setFan(1);
+    {
+      ACFanSpeed = 1;
     }
 
     else if (fanSpeed >= 25 && fanSpeed < 50)
-    { // Low
-      Serial.println("Low");
-      daikinController.setFan(2);
+    {
+      ACFanSpeed = 2;
     }
 
     else if (fanSpeed >= 50 && fanSpeed < 75)
-    { // Medium
-      Serial.println("Medium");
-      daikinController.setFan(3);
+    {
+      ACFanSpeed = 3;
     }
 
     else if (fanSpeed >= 75 && fanSpeed < 100)
-    { // High
-      Serial.println("High");
-      daikinController.setFan(4);
+    {
+      ACFanSpeed = 4;
     }
 
     else if (fanSpeed == 100)
-    { // Auto
-      Serial.println("Auto");
-      daikinController.setFan(5);
+    {
+      ACFanSpeed = 5;
+    }
+
+    if (debug)
+    {
+      Serial.print("SETTING FAN SPEED TO: ");
+      Serial.println(ACFanSpeed);
     }
   }
 
   else if (actualTopic.equals("Swing"))
   {
-    Serial.print("Swing : ");
 
     if (actualPayload.equals("ENABLED"))
     {
-      Serial.print("On");
-      daikinController.setSwing_on();
+      ACSwing = true;
     }
 
     else if (actualPayload.equals("DISABLED"))
     {
-      Serial.print("Off");
-      daikinController.setSwing_off();
+      ACSwing = false;
     }
 
-    else
+    if (debug)
     {
-      Serial.println("Unknown");
+      Serial.print("SETTING SWING TO: ");
+      Serial.println(actualPayload);
     }
   }
 
+  Serial.println("Sending this to the AC: ");
+  Serial.println("-------------------------------------");
+  Serial.print("ACPower: ");
+  Serial.println(ACPower);
+  Serial.print("ACTemp: ");
+  Serial.println(ACTemp);
+  Serial.print("ACFanSpeed: ");
+  Serial.println(ACFanSpeed);
+  Serial.print("ACSwing: ");
+  Serial.println(ACSwing);
+  Serial.println("-------------------------------------");
+
+  ACPower ? daikinController.on() : daikinController.off();
+  ACSwing ? daikinController.setSwing_on() : daikinController.setSwing_off();
+  daikinController.setTemp(ACTemp);
+  daikinController.setFan(ACFanSpeed);
   daikinController.sendCommand();
-  useStateLed ? digitalWrite(pin_led_State, HIGH) : digitalWrite(pin_led_State, LOW);
 }
 
 /* MQTT STOCK END */
